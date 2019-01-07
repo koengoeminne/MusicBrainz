@@ -1,0 +1,166 @@
+$noop( ** Files to be moved too: *.jpg *.png *.nfo *.jpeg *.cue *.bmp **)
+
+$noop( ** Setting up stuff to be used while renaming ** )
+$noop( ** Remove 'Various Artists' from Album Artist ** )
+$if($and(%compilation%, $eq($lower(%albumartist%),various artists)), $unset(albumartist) $unset(albumartistsort))
+
+$noop( ** Determine whether the release is a single or not ** )
+$set(_IsSingle,$or(
+					$or(
+						$eq($lower(%releasetype%),ep),
+						$in($lower(%releasetype%),single)
+						),
+					$eq($lower(%releasetype%),remix)
+					)
+)
+
+$noop( ** Determine whether the release is complete or not ** )
+$set(_IsIncomplete,
+		$lt($matchedtracks( ),%_totalalbumtracks%)
+)
+
+$noop( ** Test for blank year ** )
+$set(_HasBlankYear,
+		$eq(%date%,)
+)
+
+$noop( ** If release is a single, determine whether or not catalog number is filled in ** )
+$set(_IsSingleHasNoCatalogNr,
+		$and(%_IsSingle%,$eq(%catalognumber%,))
+)
+
+$noop( ** Determine bitrate for non-FLAC ** )
+$set(_BitRate,
+		$if($not($eq($lower(%_extension%),flac)),$if($and($eq($right(%_bitrate%,2),.0),$eq($left(%_bitrate%,5),$right(%_bitrate%,5))),$left(%_bitrate%,3),VBR))
+)
+
+$set(_YearBitrate,
+		\($left(%date%,4)\) [$if($eq($lower(%_extension%),flac),FLAC,$upper(%_extension%)-%_BitRate%)]
+)
+
+$noop( ** Determine when to rename album dir and filename ** )
+$set(_OkToRename,
+		$not($or(%_IsIncomplete%,%_IsSingleHasNoCatalogNr%))
+)
+
+$noop( ** Set up the folder tree ** )
+$set(_FolderTree,
+		$if2($noop( will return first non-empty argument )
+			$noop( ** Filter out anything that still needs manual action ** )
+			$if(%_IsIncomplete%,
+				Incomplete/$rreplace(%_dirname%,.*_,))
+		,
+			$if(%_IsSingleHasNoCatalogNr%,
+				SinglesNoCat/$rreplace(%_dirname%,.*_,))
+		,
+			$noop( ** Filter out things I want a specific tree for, like MixSeries ** )
+			$if($in($lower(%album%),a state of trance),
+				MixSeries/A State Of Trance/$right(%album%,$sub($len(%album%),$len(a state of trance ))))
+		,
+			$if($in($lower(%album%),balance),
+				MixSeries/Balance/$right(%album%,$sub($len(%album%),$len(balance ))))
+		,
+			$if($in($lower(%album%),beatz clash),
+				MixSeries/Beatz Clash/$replace($right(%album%,$sub($len(%album%),$len(beatz clash\, volume ))),:, -))
+		,
+			$if($in($lower(%album%),dj-kicks),
+				MixSeries/DJ-Kicks/[%catalognumber%] %djmixer%)
+		,
+			$if($in($lower(%album%),fabriclive),
+				MixSeries/FabricLive/$right(%album%,$sub($len(%album%),$len(fabriclive ))))
+		,
+			$if($in($lower(%album%),fabric),
+				MixSeries/Fabric/$right(%album%,$sub($len(%album%),$len(fabric ))))
+		,	$noop( ** Regular stuff ** )
+			$if(%_IsSingle%,
+				Singles/%label%/[%catalognumber%] $if2(%albumartist%,%artist%) - %album%)
+		,
+			$if($and($in($lower(%releasetype%),album),$noop($not(%compilation%))$ne(%albumartist%,)),
+				Albums/%albumartist%/%album%)
+		,
+			$if($and(
+					$and(%compilation%,%djmixer%),$noop(
+					$and($noop( ** Filter out Buddha Bar compilations from being in Mixes ** )
+						$ne(%djmixer%,David Visan),
+						$ne(%djmixer%,Ravin)
+						))
+					$eq(
+						$if2(
+							$if($in(%djmixer%,Visan),1),
+							$if($in(%djmixer%,Ravin),1),
+							$if(	$in(%djmixer%,Popat),1),
+							mix
+							)
+					,mix)
+					),
+				Mixes/%djmixer%/%album%)
+		,
+			$if(%compilation%,
+				Compilations/%album%)
+		,
+			NoReleaseTypeGiven/$rreplace(%_dirname%,.*_,)
+		)
+)
+
+$noop( ** Set up the album dir ** 
+$set(_AlbumDir,
+		$if(%_OkToRename%,
+			$if(%_IsSingle%,[%catalognumber%] $if2(%albumartist%,%artist%) - )%album% %_YearBitrate%,
+			$rreplace(%_dirname%,.*_,)
+		)
+))
+
+$noop( ** Set up the filename ** )
+$set(_FileName,
+		$if(%_OkToRename%,
+			$if($gt(%totaldiscs%,1),%discnumber%,)$num(%tracknumber%,2) - $if(%compilation%,%artist% - )%title%,
+			%_filename%.%_extension%
+		)
+)
+
+$noop( ** Actual renaming part happens here ** )
+$if($eq(%_BitRate%,VBR),VBR/)%_FolderTree% %_YearBitrate%/%_FileName%
+$noop(%_FolderTree%/%_AlbumDir%/%_FileName%)
+
+$noop( old script
+$if(
+	$noop( ** Filter out incomplete albums or singles without catalog number -used in folder naming later on- ** 
+	$if($or(
+			$lt($matchedtracks( ),%_totalalbumtracks%)
+		,
+			$and(%_IsSingle%,$eq(%catalognumber%,))
+		)
+	,
+		$if2(
+			$if($lt($matchedtracks( ),%_totalalbumtracks%),
+				Incomplete/)
+		,
+			$if($and(%_IsSingle%,$eq(%catalognumber%,)),
+				SinglesNoCat/)
+		)
+		$rreplace(%_dirname%,.*_,)/%_filename%.%_extension%
+	))f
+,
+	$if2(
+		$if(%_IsSingle%,
+			Singles/%label%/[%catalognumber%] $if2(%albumartist%,%artist%) - )
+	,
+		$if($and($in($lower(%releasetype%),album),$noop($not(%compilation%))$ne(%albumartist%,)),
+			Albums/%albumartist%/)
+	,
+		$if($and(%compilation%,%djmixer%),
+			Mixes/%djmixer%/)
+	,
+		$if(%compilation%,
+			Compilations/)
+	,
+		NoReleaseTypeGiven/
+	)
+	
+	%album% \($left(%date%,4)\) [
+	
+	$if($eq($lower(%_extension%),flac),FLAC,$upper(%_extension%)-$if($and($eq($right(%_bitrate%,2),.0),$eq($left(%_bitrate%,5),$right(%_bitrate%,5))),$left(%_bitrate%,3),VBR))
+	
+	]/$if($gt(%totaldiscs%,1),%discnumber%,)$num(%tracknumber%,2) - $if(%compilation%,%artist% - )%title%
+)
+)
